@@ -11,3 +11,6 @@ target
 log.xml
 nbactions.xml
 *bower_components/
+*.iml
+.idea
+
