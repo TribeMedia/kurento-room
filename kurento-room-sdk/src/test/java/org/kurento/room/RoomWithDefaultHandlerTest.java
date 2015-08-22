@@ -57,9 +57,11 @@ import org.kurento.client.OnIceCandidateEvent;
 import org.kurento.client.PassThrough;
 import org.kurento.client.WebRtcEndpoint;
 import org.kurento.room.api.KurentoClientProvider;
+import org.kurento.room.api.KurentoClientSessionInfo;
 import org.kurento.room.api.UserNotificationService;
 import org.kurento.room.api.pojo.ParticipantRequest;
 import org.kurento.room.api.pojo.UserParticipant;
+import org.kurento.room.exception.AdminException;
 import org.kurento.room.exception.RoomException;
 import org.kurento.room.internal.DefaultRoomEventHandler;
 import org.mockito.ArgumentCaptor;
@@ -74,6 +76,12 @@ import com.google.gson.JsonArray;
 import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
 
+/**
+ * Tests for {@link RoomManager} when using {@link DefaultRoomEventHandler}
+ * (mocked {@link UserNotificationService} and {@link KurentoClient} resources).
+ * 
+ * @author <a href="mailto:rvlad@naevatec.com">Radu Tom Vlad</a>
+ */
 @RunWith(PowerMockRunner.class)
 @PrepareForTest(fullyQualifiedNames = "org.kurento.*")
 public class RoomWithDefaultHandlerTest {
@@ -141,7 +149,7 @@ public class RoomWithDefaultHandlerTest {
 					throws Throwable {
 				return kurentoClient;
 			}
-		}).when(kcProvider).getKurentoClient(anyString());
+		}).when(kcProvider).getKurentoClient(any(KurentoClientSessionInfo.class));
 
 		// not used anymore, replaced by the Continuation version
 		// when(kurentoClient.createMediaPipeline()).thenAnswer(
@@ -230,7 +238,7 @@ public class RoomWithDefaultHandlerTest {
 	}
 
 	@Test
-	public void joinNewRoom() {
+	public void joinNewRoom() throws AdminException {
 		final ParticipantRequest participantRequest =
 				new ParticipantRequest(userx, requestIdx);
 		Map<String, ParticipantRequest> participantsRequests =
@@ -250,7 +258,7 @@ public class RoomWithDefaultHandlerTest {
 	}
 
 	@Test
-	public void joinManyUsersOneRoom() {
+	public void joinManyUsersOneRoom() throws AdminException {
 		int responses = 0;
 		int joinedNotifications = 0;
 		for (Entry<String, ParticipantRequest> request : usersParticipantRequests
@@ -339,7 +347,7 @@ public class RoomWithDefaultHandlerTest {
 	}
 
 	@Test
-	public void leaveRoom() {
+	public void leaveRoom() throws AdminException {
 		joinManyUsersOneRoom();
 
 		final ParticipantRequest participantRequestX =
@@ -406,7 +414,7 @@ public class RoomWithDefaultHandlerTest {
 	}
 
 	@Test
-	public void onePublisher() {
+	public void onePublisher() throws AdminException {
 		joinManyUsersOneRoom();
 
 		final ParticipantRequest participantRequest0 =
@@ -432,7 +440,7 @@ public class RoomWithDefaultHandlerTest {
 	}
 
 	@Test
-	public void joinAndPublish() {
+	public void joinAndPublish() throws AdminException {
 		int responses = 0;
 		int joinedNotifications = 0;
 		int published = 0;
@@ -472,7 +480,7 @@ public class RoomWithDefaultHandlerTest {
 	}
 
 	@Test
-	public void manyPublishers() {
+	public void manyPublishers() throws AdminException {
 		joinManyUsersOneRoom();
 
 		int published = 0;
@@ -530,7 +538,7 @@ public class RoomWithDefaultHandlerTest {
 	}
 
 	@Test
-	public void sendManyMessages() {
+	public void sendManyMessages() throws AdminException {
 		joinManyUsersOneRoom();
 		int responses = users.length;
 		int sentMessages = 0;
@@ -597,7 +605,7 @@ public class RoomWithDefaultHandlerTest {
 	}
 
 	@Test
-	public void iceCandidate() {
+	public void iceCandidate() throws AdminException {
 
 		joinManyUsersOneRoom();
 
@@ -618,14 +626,11 @@ public class RoomWithDefaultHandlerTest {
 		verifyNotificationService(2 * users.length, 0, -1, null);
 
 		// verifies listener is added to each subscriber
+		// (publisher + all others)
 		verify(endpoint, times(usersParticipantRequests.size()))
 				.addOnIceCandidateListener(iceEventCaptor.capture());
 
-		// triggers the last captured listener
-		iceEventCaptor.getValue().onEvent(
-				new OnIceCandidateEvent(endpoint, "12345", null, "candidate",
-						new IceCandidate("1 candidate test", "audio", 1)));
-
+		// stub sendNotification of type ICE_CANDIDATE_METHOD
 		doAnswer(new Answer<Void>() {
 			@Override
 			public Void answer(InvocationOnMock invocation) throws Throwable {
@@ -634,10 +639,11 @@ public class RoomWithDefaultHandlerTest {
 
 				assertThat(args[0], instanceOf(String.class));
 				String participantId = (String) args[0];
+				// not the publisher, the captor is for one of the subscribers
+				assertThat(participantId, is(not(users[0])));
+				// must belong to the registered peers
 				assertThat(usersParticipantRequests.keySet(),
 						hasItem(participantId));
-				assertThat(participantId, is(not(users[0]))); // not the
-																// publisher
 
 				assertThat(args[2], instanceOf(JsonObject.class));
 				JsonObject params = (JsonObject) args[2];
@@ -646,7 +652,7 @@ public class RoomWithDefaultHandlerTest {
 				String endpointName =
 						params.get(DefaultRoomEventHandler.ON_ICE_EP_NAME_PARAM)
 								.getAsString();
-				assertThat(endpointName, is(participantId));
+				assertThat(endpointName, is(users[0]));
 
 				assertNotNull(params
 						.get(DefaultRoomEventHandler.ON_ICE_SDP_M_LINE_INDEX_PARAM));
@@ -677,6 +683,11 @@ public class RoomWithDefaultHandlerTest {
 				eq(DefaultRoomEventHandler.ICE_CANDIDATE_METHOD),
 				isA(JsonObject.class));
 
+		// triggers the last captured listener
+		iceEventCaptor.getValue().onEvent(
+				new OnIceCandidateEvent(endpoint, "12345", null, "candidate",
+						new IceCandidate("1 candidate test", "audio", 1)));
+
 		verifyNotificationService(2 * users.length, 0, 1,
 				DefaultRoomEventHandler.ICE_CANDIDATE_METHOD);
 
@@ -691,7 +702,7 @@ public class RoomWithDefaultHandlerTest {
 	}
 
 	@Test
-	public void mediaError() {
+	public void mediaError() throws AdminException {
 
 		joinManyUsersOneRoom();
 
@@ -707,24 +718,7 @@ public class RoomWithDefaultHandlerTest {
 		verify(endpoint, times(1)).addErrorListener(
 				mediaErrorEventCaptor.capture());
 
-		// triggers the last captured listener
-		mediaErrorEventCaptor.getValue().onEvent(
-				new ErrorEvent(endpoint, "12345", null, "Fake media error",
-						101, "TEST_ERR"));
-
-		participantsSubscribe(participantRequest0);
-		assertThat(manager.getSubscribers(roomx).size(), is(users.length - 1));
-		verifyNotificationService(2 * users.length, 0, -1, null);
-
-		// verifies listener is added to each subscriber
-		verify(endpoint, times(usersParticipantRequests.size()))
-				.addErrorListener(mediaErrorEventCaptor.capture());
-
-		// triggers the last captured listener (once again)
-		mediaErrorEventCaptor.getValue().onEvent(
-				new ErrorEvent(endpoint, "12345", null, "Fake media error",
-						101, "TEST_ERR"));
-
+		// stub sendNotification of type MEDIA_ERROR_METHOD
 		final String expectedErrorMessage =
 				"TEST_ERR: Fake media error(errCode=101)";
 		doAnswer(new Answer<Void>() {
@@ -735,10 +729,8 @@ public class RoomWithDefaultHandlerTest {
 
 				assertThat(args[0], instanceOf(String.class));
 				String participantId = (String) args[0];
-				assertThat(usersParticipantRequests.keySet(),
-						hasItem(participantId));
-				assertThat(participantId, is(not(users[0]))); // not the
-																// publisher
+				// must be the publisher
+				assertThat(participantId, is(users[0]));
 
 				assertThat(args[2], instanceOf(JsonObject.class));
 				JsonObject params = (JsonObject) args[2];
@@ -751,6 +743,52 @@ public class RoomWithDefaultHandlerTest {
 		}).when(notificationService).sendNotification(anyString(),
 				eq(DefaultRoomEventHandler.MEDIA_ERROR_METHOD),
 				isA(JsonObject.class));
+
+		// triggers the captured listener
+		mediaErrorEventCaptor.getValue().onEvent(
+				new ErrorEvent(endpoint, "12345", null, "Fake media error",
+						101, "TEST_ERR"));
+
+		// subscribe all to publisher
+		participantsSubscribe(participantRequest0);
+		assertThat(manager.getSubscribers(roomx).size(), is(users.length - 1));
+		verifyNotificationService(2 * users.length, 0, -1, null);
+
+		// verifies listener is added to each subscriber
+		verify(endpoint, times(usersParticipantRequests.size()))
+				.addErrorListener(mediaErrorEventCaptor.capture());
+
+		// stub sendNotification of type MEDIA_ERROR_METHOD
+		doAnswer(new Answer<Void>() {
+			@Override
+			public Void answer(InvocationOnMock invocation) throws Throwable {
+				Object[] args = invocation.getArguments();
+				assertThat(args.length, is(3));
+
+				assertThat(args[0], instanceOf(String.class));
+				String participantId = (String) args[0];
+				// can be any peer but not the publisher
+				// (capturing an event for one of the subscribers)
+				assertThat(usersParticipantRequests.keySet(),
+						hasItem(participantId));
+				assertThat(participantId, is(not(users[0])));
+
+				assertThat(args[2], instanceOf(JsonObject.class));
+				JsonObject params = (JsonObject) args[2];
+				assertNotNull(params.get("error"));
+				String error = params.get("error").getAsString();
+				assertThat(error, is(expectedErrorMessage));
+
+				return null;
+			}
+		}).when(notificationService).sendNotification(anyString(),
+				eq(DefaultRoomEventHandler.MEDIA_ERROR_METHOD),
+				isA(JsonObject.class));
+
+		// triggers the last captured listener (once again)
+		mediaErrorEventCaptor.getValue().onEvent(
+				new ErrorEvent(endpoint, "12345", null, "Fake media error",
+						101, "TEST_ERR"));
 
 		// the error was "triggered" two times, thus 2 notifications
 		verifyNotificationService(2 * users.length, 0, 2,
@@ -767,18 +805,14 @@ public class RoomWithDefaultHandlerTest {
 	}
 
 	@Test
-	public void pipelineError() {
+	public void pipelineError() throws AdminException {
 		joinManyUsersOneRoom();
 
 		// verifies pipeline error listener is added to room
 		verify(pipeline, times(1)).addErrorListener(
 				pipelineErrorEventCaptor.capture());
 
-		// triggers the last captured listener (once again)
-		pipelineErrorEventCaptor.getValue().onEvent(
-				new ErrorEvent(pipeline, "12345", null, "Fake pipeline error",
-						505, "TEST_PP_ERR"));
-
+		// stub sendNotification of type MEDIA_ERROR_METHOD
 		final String expectedErrorMessage =
 				"TEST_PP_ERR: Fake pipeline error(errCode=505)";
 		doAnswer(new Answer<Void>() {
@@ -804,6 +838,11 @@ public class RoomWithDefaultHandlerTest {
 		}).when(notificationService).sendNotification(anyString(),
 				eq(DefaultRoomEventHandler.MEDIA_ERROR_METHOD),
 				isA(JsonObject.class));
+
+		// triggers the last captured listener
+		pipelineErrorEventCaptor.getValue().onEvent(
+				new ErrorEvent(pipeline, "12345", null, "Fake pipeline error",
+						505, "TEST_PP_ERR"));
 
 		// the error was "triggered" one time and all participants get notified
 		verifyNotificationService(users.length, 0,

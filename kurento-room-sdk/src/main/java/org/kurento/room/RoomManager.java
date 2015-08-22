@@ -27,13 +27,16 @@ import org.kurento.client.KurentoClient;
 import org.kurento.client.MediaElement;
 import org.kurento.client.MediaPipeline;
 import org.kurento.room.api.KurentoClientProvider;
+import org.kurento.room.api.KurentoClientSessionInfo;
 import org.kurento.room.api.RoomEventHandler;
 import org.kurento.room.api.UserNotificationService;
 import org.kurento.room.api.pojo.ParticipantRequest;
 import org.kurento.room.api.pojo.UserParticipant;
+import org.kurento.room.endpoint.SdpType;
 import org.kurento.room.exception.AdminException;
 import org.kurento.room.exception.RoomException;
 import org.kurento.room.exception.RoomException.Code;
+import org.kurento.room.internal.DefaultKurentoClientSessionInfo;
 import org.kurento.room.internal.DefaultRoomEventHandler;
 import org.kurento.room.internal.Participant;
 import org.kurento.room.internal.Room;
@@ -111,7 +114,7 @@ public class RoomManager {
 			if (!room.isClosed()) {
 				Set<UserParticipant> existingParticipants =
 						getParticipants(roomName);
-				room.join(request.getParticipantId(), userName);
+				room.join(request.getParticipantId(), userName, true);
 				roomEventHandler.onParticipantJoined(request, roomName,
 						userName, existingParticipants, null);
 			} else {
@@ -126,6 +129,16 @@ public class RoomManager {
 					userName, roomName, e);
 			roomEventHandler.onParticipantJoined(request, roomName, userName,
 					null, e);
+		} catch (AdminException e) {
+			log.warn("PARTICIPANT {}: Error joining/creating room {}",
+					userName, roomName, e);
+			roomEventHandler.onParticipantJoined(
+					request,
+					roomName,
+					userName,
+					null,
+					new RoomException(Code.ROOM_NOT_FOUND_ERROR_CODE, e
+							.getMessage()));
 		}
 	}
 
@@ -210,7 +223,9 @@ public class RoomManager {
 			for (MediaElement elem : mediaElements)
 				participant.getPublisher().apply(elem);
 
-			String sdpAnswer = participant.publishToRoom(sdpOffer, doLoopback);
+			String sdpAnswer =
+					participant.publishToRoom(SdpType.OFFER, sdpOffer,
+							doLoopback, null, null);
 			if (sdpAnswer != null)
 				roomEventHandler.onPublishMedia(request, name, sdpAnswer,
 						room.getParticipantIds(), null);
@@ -795,8 +810,11 @@ public class RoomManager {
 		Room room = rooms.get(roomName);
 
 		if (room == null && getOrCreate) {
+			KurentoClientSessionInfo sessionInfo =
+					new DefaultKurentoClientSessionInfo(
+							request.getParticipantId(), roomName);
 			KurentoClient kurentoClient =
-					kcProvider.getKurentoClient(request.getParticipantId());
+					kcProvider.getKurentoClient(sessionInfo);
 			if (kurentoClient == null)
 				throw new RoomException(Code.CANNOT_CREATE_ROOM_ERROR_CODE,
 						"Unable to obtain a KurentoClient instance");

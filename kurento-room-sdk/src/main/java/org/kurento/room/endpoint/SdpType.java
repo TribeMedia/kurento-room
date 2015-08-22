@@ -13,12 +13,8 @@
  *
  */
 
-package org.kurento.room.exception;
+package org.kurento.room.endpoint;
 
-public class AdminException extends Exception {
-	private static final long serialVersionUID = 1L;
-
-	public AdminException(String message) {
-		super(message);
-	}
+public enum SdpType {
+	OFFER, ANSWER;
 }
