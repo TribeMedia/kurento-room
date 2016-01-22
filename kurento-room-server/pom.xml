@@ -5,7 +5,7 @@
 	<parent>
 		<groupId>org.kurento</groupId>
 		<artifactId>kurento-room</artifactId>
-		<version>6.0.1-SNAPSHOT</version>
+		<version>6.3.1-SNAPSHOT</version>
 	</parent>
 
 	<artifactId>kurento-room-server</artifactId>
@@ -70,10 +70,17 @@
 		<dependency>
 			<groupId>org.kurento</groupId>
 			<artifactId>kurento-jsonrpc-server</artifactId>
+			<exclusions>
+				<exclusion>
+					<groupId>org.springframework.boot</groupId>
+					<artifactId>spring-boot-starter-logging</artifactId>
+				</exclusion>
+			</exclusions>
 		</dependency>
 		<dependency>
 			<groupId>org.kurento</groupId>
-			<artifactId>kurento-utils-js</artifactId>
+			<artifactId>kurento-room-test</artifactId>
+			<scope>test</scope>
 		</dependency>
 	</dependencies>
 
